@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrowdCount - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #050810;
+            --card-bg: rgba(15, 23, 42, 0.8);
+            --border: rgba(0, 242, 255, 0.15);
+            --accent: #00f2ff;
+            --danger: #ff0055;
+            --success: #00ff88;
+            --secondary-accent: #7000ff;
+        }
+
+        body,
+        html {
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            background-color: var(--bg);
+            background-image: radial-gradient(circle at 50% -20%, #1e293b 0%, var(--bg) 80%);
+            color: #f1f5f9;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            grid-template-rows: 70px 1fr 200px;
+            height: 100vh;
+            gap: 12px;
+            padding: 12px;
+        }
+
+        header {
+            grid-column: 1 / -1;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-top: 2px solid var(--accent);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            backdrop-filter: blur(15px);
+            box-shadow: 0 4px 20px rgba(0, 242, 255, 0.05);
+        }
+
+        .sidebar {
+            grid-row: 2 / 4;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            overflow: hidden;
+        }
+
+        .zone-list-scroll {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .main-content {
+            grid-row: 2;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bottom-shelf {
+            grid-row: 3;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+        }
+
+        .metric-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 15px;
+        }
+
+        .zone-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-left: 4px solid var(--accent);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .zone-item:hover {
+            background: rgba(0, 242, 255, 0.05);
+            transform: translateX(5px);
+        }
+
+        .zone-item.danger {
+            border-left-color: var(--danger);
+            background: rgba(255, 0, 85, 0.08);
+            border-right: 1px solid rgba(255, 0, 85, 0.2);
+            animation: dangerPulse 2s infinite;
+        }
+
+        @keyframes dangerPulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 rgba(255, 0, 85, 0);
+            }
+
+            50% {
+                box-shadow: 0 0 20px rgba(255, 0, 85, 0.3);
+            }
+        }
+
+        .label-upper {
+            font-size: 0.7rem;
+            color: #64748b;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .stat-lg {
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+        }
+
+        .text-info-custom {
+            color: var(--accent);
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 10px;
+        }
+
+        .pulse {
+            height: 10px;
+            width: 10px;
+            background: var(--success);
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            box-shadow: 0 0 12px var(--success);
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0.3;
+                transform: scale(0.8);
+            }
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--secondary-accent));
+            border: none;
+            font-weight: 600;
+            padding: 8px 20px;
+            border-radius: 20px;
+            transition: all 0.3s;
+        }
+
+        .btn-primary:hover {
+            filter: brightness(1.2);
+            box-shadow: 0 0 15px rgba(112, 0, 255, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            border: none;
+            font-weight: 600;
+            padding: 8px 20px;
+            border-radius: 20px;
+        }
+
+        .video-container {
+            width: 100%;
+            height: calc(100% - 30px);
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .video-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .admin-panel {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(112, 0, 255, 0.1);
+            border: 1px solid rgba(112, 0, 255, 0.3);
+            border-radius: 8px;
+        }
+
+        .threshold-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+        }
+
+        .threshold-item input {
+            width: 70px;
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            color: white;
+            text-align: center;
+        }
+
+        .user-badge {
+            background: rgba(0, 242, 255, 0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            border: 1px solid var(--accent);
+        }
+
+        .admin-badge {
+            background: rgba(112, 0, 255, 0.2);
+            border: 1px solid var(--secondary-accent);
+        }
+
+        /* Chart visibility fix */
+        #heatIntensityChart {
+            display: block !important;
+            width: 100% !important;
+            height: 130px !important;
+            min-height: 130px;
+        }
+
+        .metric-card canvas {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            padding: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="dashboard-container">
+        <header>
+            <div>
+                <span class="pulse"></span>
+                <span class="fw-bold" style="letter-spacing: 0.5px;">Croud<span style="color:var(--accent)">Count</span>
+                    - Infosys</span>
+            </div>
+            <div class="d-flex align-items-center gap-4">
+                <div class="text-end">
+                    <div class="label-upper">Live Occupancy</div>
+                    <div class="h4 mb-0 text-info-custom fw-bold" id="totalCount">0</div>
+                </div>
+                <div class="text-end border-start border-secondary ps-4">
+                    <div class="label-upper">Sync Time</div>
+                    <div class="small text-muted" id="lastUpdated">--:--:--</div>
+                </div>
+                <div class="user-badge" id="userBadge">
+                    <span id="userRole"></span>: <span id="userName"></span>
+                </div>
+                <button class="btn btn-primary btn-sm admin-only-btn" onclick="exportCSV()"
+                    style="display: none;">Export CSV</button>
+                <button class="btn btn-primary btn-sm admin-only-btn" onclick="exportPDF()"
+                    style="display: none;">Export PDF</button>
+                <button class="btn btn-danger btn-sm" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <aside class="sidebar">
+            <h6 class="label-upper mb-3" style="color: var(--accent)">● Area Breakdown</h6>
+            <div id="zoneContainer" class="zone-list-scroll"></div>
+            <div id="alertBox" class="mt-3 p-2 d-none rounded text-center small fw-bold"
+                style="background: var(--danger); color: white; box-shadow: 0 0 20px rgba(255, 0, 85, 0.3);">
+                ⚠️ CRITICAL CAPACITY REACHED
+            </div>
+
+            <!-- Admin Panel -->
+            <div id="adminPanel" class="admin-panel" style="display: none;">
+                <h6 class="label-upper mb-2" style="color: var(--secondary-accent)">⚙️ Admin Controls</h6>
+                <div id="thresholdControls"></div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <h6 class="label-upper mb-3">Live Video Feed with Heatmap</h6>
+            <div class="video-container">
+                <img id="videoFeed" src="http://localhost:8000/video_feed" alt="Live Feed">
+            </div>
+        </main>
+
+        <div class="bottom-shelf">
+            <div class="metric-card">
+                <h6 class="label-upper mb-2">📊 Activity Heat Profile</h6>
+                <div style="height: 130px;">
+                    <canvas id="heatIntensityChart"></canvas>
+                </div>
+            </div>
+            <div class="metric-card">
+                <h6 class="label-upper mb-2">👥 Population Trend</h6>
+                <div style="height: 130px;">
+                    <canvas id="populationChart"></canvas>
+                </div>
+            </div>
+            <div class="metric-card">
+                <h6 class="label-upper mb-2">📈 Zone Comparison</h6>
+                <div style="height: 130px;">
+                    <canvas id="zoneComparisonChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        const MAX_POINTS = 30;
+        let heatChart, populationChart, zoneComparisonChart;
+        let labels = [];
+        let thresholds = {};
+        let userRole = '';
+        let token = '';
+        let populationHistory = [];
+        let populationTimestamps = [];
+
+        // Check authentication
+        function checkAuth() {
+            token = localStorage.getItem('token');
+            const username = localStorage.getItem('username');
+            userRole = localStorage.getItem('role');
+
+            if (!token) {
+                window.location.href = 'login.html';
+                return false;
+            }
+
+            // Display user info
+            document.getElementById('userName').textContent = username;
+            document.getElementById('userRole').textContent = userRole.toUpperCase();
+
+            const userBadge = document.getElementById('userBadge');
+            if (userRole === 'admin') {
+                userBadge.classList.add('admin-badge');
+                document.getElementById('adminPanel').style.display = 'block';
+
+                // Show export buttons for admin only
+                document.querySelectorAll('.admin-only-btn').forEach(btn => {
+                    btn.style.display = 'inline-block';
+                });
+            }
+
+            return true;
+        }
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = 'login.html?logout=true';
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers
+            });
+
+            if (response.status === 401) {
+                logout();
+                return null;
+            }
+
+            return response;
+        }
+
+        async function exportCSV() {
+            try {
+                const response = await apiCall('/export_csv');
+                if (response && response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `crowd_report_${new Date().getTime()}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                }
+            } catch (error) {
+                console.error('CSV export failed:', error);
+                alert('Failed to export CSV');
+            }
+        }
+
+        async function exportPDF() {
+            try {
+                const response = await apiCall('/export_pdf');
+                if (response && response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `crowd_report_${new Date().getTime()}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                }
+            } catch (error) {
+                console.error('PDF export failed:', error);
+                alert('Failed to export PDF');
+            }
+        }
+
+        async function loadThresholds() {
+            if (userRole !== 'admin') return;
+
+            try {
+                const response = await apiCall('/thresholds');
+                if (response && response.ok) {
+                    thresholds = await response.json();
+                    console.log('Loaded thresholds:', thresholds);
+
+                    // If no thresholds exist, create default ones from current zones
+                    if (Object.keys(thresholds).length === 0) {
+                        console.log('No thresholds found, will create from zones');
+                        // Get current zones from the latest data
+                        const countResponse = await fetch(`${API_BASE}/get_count`);
+                        if (countResponse.ok) {
+                            const countData = await countResponse.json();
+                            // Create default thresholds for each zone
+                            for (const zoneName of Object.keys(countData.zones)) {
+                                thresholds[zoneName] = { max_capacity: 30, alert_enabled: true };
+                                // Save to backend
+                                await apiCall(`/set_threshold?zone_name=${encodeURIComponent(zoneName)}&max_capacity=30`, {
+                                    method: 'POST'
+                                });
+                            }
+                            console.log('Created default thresholds:', thresholds);
+                        }
+                    }
+
+                    renderThresholdControls();
+                }
+            } catch (error) {
+                console.error('Failed to load thresholds:', error);
+            }
+        }
+
+        function renderThresholdControls() {
+            const container = document.getElementById('thresholdControls');
+            if (!container) {
+                console.error('thresholdControls container not found!');
+                return;
+            }
+
+            container.innerHTML = '';
+
+            console.log('Rendering thresholds:', thresholds);
+
+            if (Object.keys(thresholds).length === 0) {
+                container.innerHTML = '<div style="color: #64748b; font-size: 0.85rem; padding: 10px;">No zones configured yet. Create zones in the video window.</div>';
+                return;
+            }
+
+            // Only show thresholds for zones that currently exist
+            // This will be filtered in updateData() to remove duplicates
+            for (const [zoneName, data] of Object.entries(thresholds)) {
+                const item = document.createElement('div');
+                item.className = 'threshold-item';
+                item.setAttribute('data-zone', zoneName);
+                item.innerHTML = `
+            <span style="font-size: 0.85rem;">${zoneName}</span>
+            <div>
+                <input type="number" value="${data.max_capacity}" 
+                       onchange="updateThreshold('${zoneName}', this.value)" 
+                       min="1" max="1000">
+            </div>
+        `;
+                container.appendChild(item);
+            }
+
+            console.log(`Rendered ${Object.keys(thresholds).length} threshold controls`);
+        }
+
+        async function updateThreshold(zoneName, value) {
+            try {
+                const response = await apiCall(`/set_threshold?zone_name=${zoneName}&max_capacity=${value}`, {
+                    method: 'POST'
+                });
+
+                if (response && response.ok) {
+                    thresholds[zoneName].max_capacity = parseInt(value);
+                    console.log(`Threshold updated for ${zoneName}: ${value}`);
+                }
+            } catch (error) {
+                console.error('Failed to update threshold:', error);
+            }
+        }
+
+        function init() {
+            if (!checkAuth()) return;
+
+            // Enhanced chart configuration for better visibility
+            const chartDefaults = {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 500,
+                    easing: 'easeInOutQuad'
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#00f2ff',
+                        bodyColor: '#ffffff'
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        grid: {
+                            display: true,
+                            color: 'rgba(255,255,255,0.05)'
+                        },
+                        ticks: {
+                            color: '#94a3b8',
+                            font: { size: 9 },
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 8
+                        }
+                    },
+                    y: {
+                        display: true,
+                        grid: {
+                            display: true,
+                            color: 'rgba(255,255,255,0.08)'
+                        },
+                        ticks: {
+                            color: '#94a3b8',
+                            font: { size: 10 }
+                        },
+                        beginAtZero: true,
+                        suggestedMax: 100
+                    }
+                }
+            };
+
+            // Chart 1: Heat Intensity
+            heatChart = new Chart(document.getElementById('heatIntensityChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Heat Intensity',
+                        data: [],
+                        borderColor: '#7000ff',
+                        backgroundColor: 'rgba(112, 0, 255, 0.2)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointRadius: 2,
+                        pointBackgroundColor: '#7000ff',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 1
+                    }]
+                },
+                options: chartDefaults
+            });
+
+            // Chart 2: Population Trend
+            populationChart = new Chart(document.getElementById('populationChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Total People',
+                        data: [],
+                        borderColor: '#00f2ff',
+                        backgroundColor: 'rgba(0, 242, 255, 0.2)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointRadius: 2,
+                        pointBackgroundColor: '#00f2ff',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 1
+                    }]
+                },
+                options: chartDefaults
+            });
+
+            // Chart 3: Zone Comparison (Bar Chart)
+            zoneComparisonChart = new Chart(document.getElementById('zoneComparisonChart'), {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'People Count',
+                        data: [],
+                        backgroundColor: [
+                            'rgba(0, 242, 255, 0.6)',
+                            'rgba(112, 0, 255, 0.6)',
+                            'rgba(0, 255, 136, 0.6)',
+                            'rgba(255, 0, 85, 0.6)',
+                            'rgba(255, 200, 0, 0.6)'
+                        ],
+                        borderColor: [
+                            '#00f2ff',
+                            '#7000ff',
+                            '#00ff88',
+                            '#ff0055',
+                            '#ffc800'
+                        ],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    ...chartDefaults,
+                    scales: {
+                        ...chartDefaults.scales,
+                        x: {
+                            ...chartDefaults.scales.x,
+                            ticks: {
+                                ...chartDefaults.scales.x.ticks,
+                                maxRotation: 45,
+                                minRotation: 0
+                            }
+                        }
+                    }
+                }
+            });
+
+            console.log('✅ All charts initialized successfully');
+
+            loadThresholds();
+            updateData(); // Initial update
+            setInterval(updateData, 1000);
+        }
+
+        async function updateData() {
+            try {
+                const response = await fetch(`${API_BASE}/get_count`);
+                const data = await response.json();
+
+                const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                document.getElementById('lastUpdated').innerText = now;
+
+                // Update zone container dynamically
+                const zoneContainer = document.getElementById('zoneContainer');
+                zoneContainer.innerHTML = '';
+                let total = 0;
+                let peakVal = -1;
+                let peakName = 'None';
+                let limitReached = false;
+
+                // Get current zones from API data (source of truth)
+                const currentZones = Object.keys(data.zones);
+                const knownZones = Object.keys(thresholds);
+
+                // Check for new zones and create default thresholds
+                for (const zoneName of currentZones) {
+                    if (!knownZones.includes(zoneName)) {
+                        console.log(`🆕 New zone detected: ${zoneName}, creating default threshold`);
+                        thresholds[zoneName] = { max_capacity: 30, alert_enabled: true };
+
+                        // Save to backend if admin
+                        if (userRole === 'admin') {
+                            try {
+                                await apiCall(`/set_threshold?zone_name=${encodeURIComponent(zoneName)}&max_capacity=30`, {
+                                    method: 'POST'
+                                });
+                                console.log(`✅ Default threshold saved for ${zoneName}`);
+                            } catch (error) {
+                                console.error(`Failed to save threshold for ${zoneName}:`, error);
+                            }
+                        }
+                    }
+                }
+
+                // Remove thresholds for zones that no longer exist (FIX DUPLICATES)
+                for (const zoneName of knownZones) {
+                    if (!currentZones.includes(zoneName)) {
+                        console.log(`🗑️ Removing threshold for deleted zone: ${zoneName}`);
+                        delete thresholds[zoneName];
+                    }
+                }
+
+                // Update threshold controls if admin and zones changed
+                if (userRole === 'admin') {
+                    // Remove threshold controls for deleted zones
+                    const thresholdContainer = document.getElementById('thresholdControls');
+                    if (thresholdContainer) {
+                        const thresholdItems = thresholdContainer.querySelectorAll('.threshold-item');
+                        thresholdItems.forEach(item => {
+                            const zoneName = item.getAttribute('data-zone');
+                            if (!currentZones.includes(zoneName)) {
+                                item.remove();
+                            }
+                        });
+                    }
+
+                    // Add new threshold controls if needed
+                    if (currentZones.length !== knownZones.length) {
+                        renderThresholdControls();
+                    }
+                }
+
+                // Prepare data for zone comparison chart
+                const zoneNames = [];
+                const zoneCounts = [];
+
+                // Render zones dynamically
+                Object.entries(data.zones).forEach(([name, count]) => {
+                    total += count;
+                    if (count > peakVal) { peakVal = count; peakName = name; }
+
+                    const threshold = thresholds[name]?.max_capacity || 30;
+                    const isOver = count > threshold;
+                    if (isOver) limitReached = true;
+
+                    // Add to zone comparison data
+                    zoneNames.push(name);
+                    zoneCounts.push(count);
+
+                    zoneContainer.innerHTML += `
+                    <div class="zone-item ${isOver ? 'danger' : ''}">
+                        <div>
+                            <div class="label-upper" style="font-size: 0.6rem;">Area Name</div>
+                            <div class="fw-bold" style="color: #f1f5f9">${name}</div>
+                            <div class="label-upper" style="font-size: 0.55rem; margin-top: 4px;">Limit: ${threshold}</div>
+                        </div>
+                        <div class="stat-lg ${isOver ? 'text-danger' : 'text-info-custom'}">${count}</div>
+                    </div>`;
+                });
+
+                // Update summary stats
+                document.getElementById('totalCount').innerText = total;
+
+                // Update alert box
+                const alertBox = document.getElementById('alertBox');
+                limitReached ? alertBox.classList.remove('d-none') : alertBox.classList.add('d-none');
+
+                // Update Chart 1: Heat Intensity
+                if (data.heat_timestamps && data.heat_timestamps.length > 0) {
+                    heatChart.data.labels = data.heat_timestamps;
+                    heatChart.data.datasets[0].data = data.heat_intensity_history;
+                    heatChart.update('none');
+                }
+
+                // Update Chart 2: Population Trend
+                populationHistory.push(total);
+                populationTimestamps.push(now);
+                if (populationHistory.length > MAX_POINTS) {
+                    populationHistory.shift();
+                    populationTimestamps.shift();
+                }
+                populationChart.data.labels = populationTimestamps;
+                populationChart.data.datasets[0].data = populationHistory;
+                populationChart.update('none');
+
+                // Update Chart 3: Zone Comparison
+                zoneComparisonChart.data.labels = zoneNames;
+                zoneComparisonChart.data.datasets[0].data = zoneCounts;
+                zoneComparisonChart.update('none');
+
+            } catch (error) {
+                console.error("❌ Update failed:", error);
+            }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

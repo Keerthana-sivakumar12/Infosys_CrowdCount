@@ -1,0 +1,242 @@
+import cv2
+import datetime
+import threading
+import numpy as np
+import getpass
+import time
+import sys
+import os
+import json
+
+# Add directories to path
+backend_dir = os.path.dirname(__file__)
+sys.path.insert(0, os.path.join(backend_dir, 'services'))
+sys.path.insert(0, os.path.join(backend_dir, 'models'))
+sys.path.insert(0, os.path.join(backend_dir, '_archive'))
+
+# Direct imports
+import camera_feed as cam
+import tracking as tr
+import zones as zn
+import api_server_old as api_server
+import database as db
+
+# --- Admin Authentication for Zone Management ---
+ADMIN_PASSWORD = "admin123"  # Should match web admin password
+ALLOW_ZONE_MANAGEMENT = False
+
+def check_admin_access():
+    """Check if user has admin access for zone management"""
+    global ALLOW_ZONE_MANAGEMENT
+    
+    print("\n" + "="*60)
+    print("🔒 CROWDCOUNT - ZONE MANAGEMENT ACCESS CONTROL")
+    print("="*60)
+    print("\n📋 Zone management requires ADMIN privileges")
+    print("   - Create zones (keyboard: 'n')")
+    print("   - Edit zones (keyboard: 'e')")
+    print("   - Delete zones (keyboard: 'd')")
+    print("   - Save zones (keyboard: 's')")
+    print("\n💡 Options:")
+    print("   1. Press ENTER to skip (VIEW-ONLY mode)")
+    print("   2. Enter admin password for FULL ACCESS")
+    print("\n" + "-"*60)
+    
+    try:
+        password = getpass.getpass("Admin Password (or press Enter): ")
+    except:
+        # Fallback if getpass doesn't work
+        password = input("Admin Password (or press Enter): ")
+    
+    print("-"*60)
+    
+    if password == "":
+        print("\n✅ Running in VIEW-ONLY mode")
+        print("   ❌ Zone controls DISABLED")
+        print("   ✅ Dashboard access: http://localhost:8000")
+        print("   ✅ Video monitoring active")
+        ALLOW_ZONE_MANAGEMENT = False
+    elif password == ADMIN_PASSWORD:
+        print("\n✅ ADMIN ACCESS GRANTED!")
+        print("   ✅ Zone controls ENABLED (n, e, d, s)")
+        print("   ✅ Dashboard access: http://localhost:8000")
+        print("   ✅ Full system access")
+        ALLOW_ZONE_MANAGEMENT = True
+    else:
+        print("\n❌ Invalid password!")
+        print("   ❌ Zone controls DISABLED")
+        print("   ✅ Running in VIEW-ONLY mode")
+        print("   ✅ Dashboard access: http://localhost:8000")
+        ALLOW_ZONE_MANAGEMENT = False
+    
+    print("="*60 + "\n")
+    time.sleep(2)
+
+def start_api():
+    """Start the FastAPI server"""
+    import uvicorn
+    uvicorn.run(api_server.app, host="0.0.0.0", port=8000, log_level="error")
+
+
+# --- Simple Rectangular Zone Drawing ---
+drawing = False
+start_x = start_y = curr_x = curr_y = None
+mode = None
+selected_zone_id = None
+new_zone_name = None
+paused = False
+
+def mouse_event(event, x, y, flags, param):
+    global drawing, start_x, start_y, curr_x, curr_y
+    global mode, selected_zone_id, new_zone_name
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        if mode in ["edit","delete"]:
+            for z in zn.zones:
+                if zn.is_point_inside_zone(x, y, z):
+                    selected_zone_id = z["id"]
+                    if mode == "delete":
+                        zn.delete_zone_by_id(selected_zone_id)
+                        zn.save_zones()
+                        print(f"Deleted zone {z['name']}")
+                        mode = None
+                        return
+                    else:
+                        drawing = True
+                        start_x, start_y = x, y
+                        return
+
+        if mode == "new":
+            drawing = True
+            start_x, start_y = x, y
+
+    elif event == cv2.EVENT_MOUSEMOVE and drawing:
+        curr_x, curr_y = x, y
+
+    elif event == cv2.EVENT_LBUTTONUP and drawing:
+        drawing = False
+        curr_x, curr_y = x, y
+
+        x1, y1 = min(start_x, curr_x), min(start_y, curr_y)
+        x2, y2 = max(start_x, curr_x), max(start_y, curr_y)
+        pts = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
+
+        if mode == "new":
+            zn.add_zone(new_zone_name, pts)
+            zn.save_zones()
+            print(f"Created zone: {new_zone_name}")
+            mode = None
+
+        elif mode == "edit":
+            zn.update_zone(selected_zone_id, pts)
+            zn.save_zones()
+            print("Zone updated")
+            mode = None
+
+# --- Main ---
+zn.load_zones()
+cam.start_camera("videos/sam1.mp4")
+
+# Check admin access for zone management
+check_admin_access()
+
+cv2.namedWindow("Crowd Monitor")
+cv2.setMouseCallback("Crowd Monitor", mouse_event)
+
+api_thread = threading.Thread(target=start_api, daemon=True)
+api_thread.start()
+
+print("🚀 API live at http://localhost:8000")
+if ALLOW_ZONE_MANAGEMENT:
+    print("🔓 Zone Controls: n=new zone, e=edit, d=delete, s=save, p=pause, q=quit")
+else:
+    print("🔒 Zone Controls: DISABLED (admin access required)")
+    print("   Available: p=pause, q=quit")
+
+prev_t = datetime.datetime.now().timestamp()
+
+# --- Loop ---
+while True:
+    if not paused:
+        frame = cam.get_camera_frame()
+        if frame is None:
+            continue
+
+        frame = cv2.resize(frame, (1280, 720))
+
+        now = datetime.datetime.now().timestamp()
+        fps = 1 / (now - prev_t + 1e-8)
+        prev_t = now
+
+        cv2.putText(frame, f"FPS: {int(fps)}", (20, 40),
+                    cv2.FONT_HERSHEY_DUPLEX, 1, (0,255,255), 2)
+
+        people = tr.track_people(frame)
+        zn.update_heatmap(people, frame.shape)
+        zn.count_people_in_zones(people)
+
+        counts = zn.get_counts_for_api()
+        api_server.live_count.update(counts)
+
+        # Log for export
+        entry = {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total_people": counts["total_people"]
+        }
+        entry.update(counts["zones"])
+        api_server.history_log.append(entry)
+        
+        # Log to database every 5 seconds to avoid excessive writes
+        if int(now) % 5 == 0:
+            try:
+                db.log_entry(counts["total_people"], json.dumps(counts["zones"]))
+            except Exception as e:
+                print(f"Database logging error: {e}")
+
+        zn.draw_all_zones(frame)
+        zn.draw_zone_count_display(frame)
+
+        for p in people:
+            x1,y1,x2,y2 = p["bbox"]
+            cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,0), 2)
+            cv2.putText(frame, f"ID:{p['id']}", (x1, y1-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
+
+        # Update shared frame for video feed endpoint
+        api_server.latest_frame = frame.copy()
+
+        if drawing:
+            cv2.rectangle(frame, (start_x, start_y), (curr_x, curr_y), (255,255,255), 2)
+
+        cv2.imshow("Crowd Monitor", frame)
+
+    key = cv2.waitKey(1)
+    if key == ord('q'): 
+        break
+    elif key == ord('p'): 
+        paused = not paused
+    elif key == ord('n'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone creation requires ADMIN access")
+            continue
+        new_zone_name = input("Zone name: ")
+        mode = "new"
+    elif key == ord('e'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone editing requires ADMIN access")
+            continue
+        mode = "edit"
+    elif key == ord('d'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone deletion requires ADMIN access")
+            continue
+        mode = "delete"
+    elif key == ord('s'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone saving requires ADMIN access")
+            continue
+        zn.save_zones()
+        print("✅ Zones saved successfully")
+
+cam.stop_camera()
+cv2.destroyAllWindows()

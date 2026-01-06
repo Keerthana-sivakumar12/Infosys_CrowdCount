@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrowdCount - Infosys</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Updated Color Palette */
+            --bg: #050810;
+            --card-bg: rgba(15, 23, 42, 0.8);
+            --border: rgba(0, 242, 255, 0.15);
+            --accent: #00f2ff; /* Neon Cyan */
+            --danger: #ff0055; /* Vibrant Red/Pink */
+            --success: #00ff88; /* Neon Green */
+            --secondary-accent: #7000ff; /* Electric Purple */
+        }
+
+        body, html {
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            background-color: var(--bg);
+            background-image: radial-gradient(circle at 50% -20%, #1e293b 0%, var(--bg) 80%);
+            color: #f1f5f9;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            grid-template-rows: 70px 1fr 200px;
+            height: 100vh;
+            gap: 12px;
+            padding: 12px;
+        }
+
+        header {
+            grid-column: 1 / -1;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-top: 2px solid var(--accent);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            backdrop-filter: blur(15px);
+            box-shadow: 0 4px 20px rgba(0, 242, 255, 0.05);
+        }
+
+        .sidebar {
+            grid-row: 2 / 4;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            overflow: hidden;
+        }
+
+        .zone-list-scroll {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .main-content {
+            grid-row: 2;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+        }
+
+        .bottom-shelf {
+            grid-row: 3;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .metric-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 15px;
+        }
+
+        .zone-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-left: 4px solid var(--accent);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .zone-item:hover {
+            background: rgba(0, 242, 255, 0.05);
+            transform: translateX(5px);
+        }
+
+        .zone-item.danger {
+            border-left-color: var(--danger);
+            background: rgba(255, 0, 85, 0.08);
+            border-right: 1px solid rgba(255, 0, 85, 0.2);
+        }
+
+        .label-upper {
+            font-size: 0.7rem;
+            color: #64748b;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .stat-lg { 
+            font-size: 1.5rem; 
+            font-weight: 700; 
+            text-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+        }
+        
+        .text-info-custom { color: var(--accent); }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+        .pulse {
+            height: 10px; width: 10px; background: var(--success); border-radius: 50%;
+            display: inline-block; margin-right: 8px;
+            box-shadow: 0 0 12px var(--success);
+            animation: blink 1.5s infinite;
+        }
+        @keyframes blink { 50% { opacity: 0.3; transform: scale(0.8); } }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--secondary-accent));
+            border: none;
+            font-weight: 600;
+        }
+        .btn-primary:hover {
+            filter: brightness(1.2);
+            box-shadow: 0 0 15px rgba(112, 0, 255, 0.4);
+        }
+    </style>
+</head>
+<body>
+
+<div class="dashboard-container">
+    <header>
+        <div>
+            <span class="pulse"></span>
+            <span class="fw-bold" style="letter-spacing: 0.5px;">Croud<span style="color:var(--accent)">Count</span>- Infosys</span>
+        </div>
+        <div class="d-flex align-items-center gap-4">
+            <div class="text-end">
+                <div class="label-upper">Live Occupancy</div>
+                <div class="h4 mb-0 text-info-custom fw-bold" id="totalCount">0</div>
+            </div>
+            <div class="text-end border-start border-secondary ps-4">
+                <div class="label-upper">Sync Time</div>
+                <div class="small text-muted" id="lastUpdated">--:--:--</div>
+            </div>
+            <a href="http://localhost:8000/export_csv" class="btn btn-primary btn-sm px-4 rounded-pill">Export CSV</a>
+        </div>
+    </header>
+
+    <aside class="sidebar">
+        <h6 class="label-upper mb-3" style="color: var(--accent)">● Area Breakdown</h6>
+        <div id="zoneContainer" class="zone-list-scroll"></div>
+        <div id="alertBox" class="mt-3 p-2 d-none rounded text-center small fw-bold" style="background: var(--danger); color: white; box-shadow: 0 0 20px rgba(255, 0, 85, 0.3);">
+            ⚠️ CRITICAL CAPACITY REACHED
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <h6 class="label-upper mb-3">Live Population Dynamics</h6>
+        <div style="height: calc(100% - 30px);">
+            <canvas id="lineChart"></canvas>
+        </div>
+    </main>
+
+    <div class="bottom-shelf">
+        <div class="metric-card">
+            <h6 class="label-upper mb-2">Activity Heat Profile</h6>
+            <div style="height: 130px;">
+                <canvas id="heatIntensityChart"></canvas>
+            </div>
+        </div>
+        <div class="metric-card">
+            <h6 class="label-upper mb-3">Operational Insights</h6>
+            <div class="row text-center h-75 align-items-center">
+                <div class="col-6 border-end border-secondary">
+                    <div class="label-upper">Busiest Zone</div>
+                    <div class="h5 mt-1 fw-bold" id="peakZone" style="color: var(--success)">N/A</div>
+                </div>
+                <div class="col-6">
+                    <div class="label-upper">Active Points</div>
+                    <div class="h5 mt-1 fw-bold" id="sensorCount" style="color: var(--secondary-accent)">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const ZONE_LIMIT = 3;
+const MAX_POINTS = 30;
+let lineChart, heatChart;
+let labels = [];
+
+function init() {
+    const chartDefaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+            duration: 1000,
+            easing: 'easeInOutQuad'
+        },
+        plugins: { legend: { display: false } },
+        scales: { 
+            x: { grid: { display: false }, ticks: { color: '#475569', font: { size: 10 } } },
+            y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#475569' }, beginAtZero: true }
+        }
+    };
+
+    lineChart = new Chart(document.getElementById('lineChart'), {
+        type: 'line',
+        data: { labels: labels, datasets: [] },
+        options: { 
+            ...chartDefaults, 
+            plugins: { 
+                legend: { 
+                    display: true, 
+                    position: 'top', 
+                    align: 'end',
+                    labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle', boxWidth: 6, font: { size: 11 } } 
+                } 
+            },
+            elements: { line: { tension: 0.4 }, point: { radius: 0 } }
+        }
+    });
+
+    heatChart = new Chart(document.getElementById('heatIntensityChart'), {
+        type: 'line',
+        data: { 
+            labels: [], 
+            datasets: [{ 
+                data: [], 
+                borderColor: '#7000ff', 
+                backgroundColor: 'rgba(112, 0, 255, 0.15)', 
+                fill: true, 
+                tension: 0.4, 
+                borderWidth: 2,
+                pointRadius: 0
+            }] 
+        },
+        options: chartDefaults
+    });
+}
+
+function updateData() {
+    fetch('http://localhost:8000/get_count')
+        .then(res => res.json())
+        .then(data => {
+            const now = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            document.getElementById('lastUpdated').innerText = now;
+
+            if (labels.length >= MAX_POINTS) labels.shift();
+            labels.push(now);
+
+            const zoneContainer = document.getElementById('zoneContainer');
+            zoneContainer.innerHTML = '';
+            let total = 0;
+            let peakVal = -1;
+            let peakName = 'None';
+            let limitReached = false;
+
+            Object.entries(data.zones).forEach(([name, count]) => {
+                total += count;
+                if(count > peakVal) { peakVal = count; peakName = name; }
+                const isOver = count > ZONE_LIMIT;
+                if(isOver) limitReached = true;
+
+                zoneContainer.innerHTML += `
+                    <div class="zone-item ${isOver ? 'danger' : ''}">
+                        <div>
+                            <div class="label-upper" style="font-size: 0.6rem;">Area Name</div>
+                            <div class="fw-bold" style="color: #f1f5f9">${name}</div>
+                        </div>
+                        <div class="stat-lg ${isOver ? 'text-danger' : 'text-info-custom'}">${count}</div>
+                    </div>`;
+
+                let dataset = lineChart.data.datasets.find(ds => ds.label === name);
+                if (!dataset) {
+                    // Modern Cyberpunk Chart Colors
+                    const colors = ['#ff0055', '#00ff88', '#00f2ff', '#ffaa00', '#7000ff'];
+                    dataset = {
+                        label: name,
+                        data: new Array(labels.length - 1).fill(null),
+                        borderColor: colors[lineChart.data.datasets.length % colors.length],
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        shadowBlur: 10,
+                        shadowColor: 'rgba(0,0,0,0.5)'
+                    };
+                    lineChart.data.datasets.push(dataset);
+                }
+                if (dataset.data.length >= MAX_POINTS) dataset.data.shift();
+                dataset.data.push(count);
+            });
+
+            lineChart.data.datasets = lineChart.data.datasets.filter(ds => data.zones[ds.label] !== undefined);
+
+            document.getElementById('totalCount').innerText = total;
+            document.getElementById('peakZone').innerText = peakName;
+            document.getElementById('sensorCount').innerText = Object.keys(data.zones).length;
+            const alertBox = document.getElementById('alertBox');
+            limitReached ? alertBox.classList.remove('d-none') : alertBox.classList.add('d-none');
+
+            heatChart.data.labels = data.heat_timestamps || [];
+            heatChart.data.datasets[0].data = data.heat_intensity_history || [];
+
+            lineChart.update();
+            heatChart.update();
+        })
+        .catch(e => console.error("Update failed"));
+}
+
+init();
+setInterval(updateData, 1000);
+</script>
+</body>
+</html>
+
