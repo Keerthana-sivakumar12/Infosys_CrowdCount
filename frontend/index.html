@@ -1,346 +1,242 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CrowdCount - Infosys</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            /* Updated Color Palette */
-            --bg: #050810;
-            --card-bg: rgba(15, 23, 42, 0.8);
-            --border: rgba(0, 242, 255, 0.15);
-            --accent: #00f2ff; /* Neon Cyan */
-            --danger: #ff0055; /* Vibrant Red/Pink */
-            --success: #00ff88; /* Neon Green */
-            --secondary-accent: #7000ff; /* Electric Purple */
-        }
+import cv2
+import datetime
+import threading
+import numpy as np
+import getpass
+import time
+import sys
+import os
+import json
 
-        body, html {
-            height: 100vh;
-            margin: 0;
-            overflow: hidden;
-            background-color: var(--bg);
-            background-image: radial-gradient(circle at 50% -20%, #1e293b 0%, var(--bg) 80%);
-            color: #f1f5f9;
-            font-family: 'Inter', sans-serif;
-        }
+# Add directories to path
+backend_dir = os.path.dirname(__file__)
+sys.path.insert(0, os.path.join(backend_dir, 'services'))
+sys.path.insert(0, os.path.join(backend_dir, 'models'))
+sys.path.insert(0, os.path.join(backend_dir, '_archive'))
 
-        .dashboard-container {
-            display: grid;
-            grid-template-columns: 350px 1fr;
-            grid-template-rows: 70px 1fr 200px;
-            height: 100vh;
-            gap: 12px;
-            padding: 12px;
-        }
+# Direct imports
+import camera_feed as cam
+import tracking as tr
+import zones as zn
+import api_server_old as api_server
+import database as db
 
-        header {
-            grid-column: 1 / -1;
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-top: 2px solid var(--accent);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 20px;
-            backdrop-filter: blur(15px);
-            box-shadow: 0 4px 20px rgba(0, 242, 255, 0.05);
-        }
+# --- Admin Authentication for Zone Management ---
+ADMIN_PASSWORD = "admin123"  # Should match web admin password
+ALLOW_ZONE_MANAGEMENT = False
 
-        .sidebar {
-            grid-row: 2 / 4;
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            display: flex;
-            flex-direction: column;
-            padding: 15px;
-            overflow: hidden;
-        }
+def check_admin_access():
+    """Check if user has admin access for zone management"""
+    global ALLOW_ZONE_MANAGEMENT
+    
+    print("\n" + "="*60)
+    print("🔒 CROWDCOUNT - ZONE MANAGEMENT ACCESS CONTROL")
+    print("="*60)
+    print("\n📋 Zone management requires ADMIN privileges")
+    print("   - Create zones (keyboard: 'n')")
+    print("   - Edit zones (keyboard: 'e')")
+    print("   - Delete zones (keyboard: 'd')")
+    print("   - Save zones (keyboard: 's')")
+    print("\n💡 Options:")
+    print("   1. Press ENTER to skip (VIEW-ONLY mode)")
+    print("   2. Enter admin password for FULL ACCESS")
+    print("\n" + "-"*60)
+    
+    try:
+        password = getpass.getpass("Admin Password (or press Enter): ")
+    except:
+        # Fallback if getpass doesn't work
+        password = input("Admin Password (or press Enter): ")
+    
+    print("-"*60)
+    
+    if password == "":
+        print("\n✅ Running in VIEW-ONLY mode")
+        print("   ❌ Zone controls DISABLED")
+        print("   ✅ Dashboard access: http://localhost:8000")
+        print("   ✅ Video monitoring active")
+        ALLOW_ZONE_MANAGEMENT = False
+    elif password == ADMIN_PASSWORD:
+        print("\n✅ ADMIN ACCESS GRANTED!")
+        print("   ✅ Zone controls ENABLED (n, e, d, s)")
+        print("   ✅ Dashboard access: http://localhost:8000")
+        print("   ✅ Full system access")
+        ALLOW_ZONE_MANAGEMENT = True
+    else:
+        print("\n❌ Invalid password!")
+        print("   ❌ Zone controls DISABLED")
+        print("   ✅ Running in VIEW-ONLY mode")
+        print("   ✅ Dashboard access: http://localhost:8000")
+        ALLOW_ZONE_MANAGEMENT = False
+    
+    print("="*60 + "\n")
+    time.sleep(2)
 
-        .zone-list-scroll {
-            flex-grow: 1;
-            overflow-y: auto;
-            margin-top: 10px;
-        }
+def start_api():
+    """Start the FastAPI server"""
+    import uvicorn
+    uvicorn.run(api_server.app, host="0.0.0.0", port=8000, log_level="error")
 
-        .main-content {
-            grid-row: 2;
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            position: relative;
-        }
 
-        .bottom-shelf {
-            grid-row: 3;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
+# --- Simple Rectangular Zone Drawing ---
+drawing = False
+start_x = start_y = curr_x = curr_y = None
+mode = None
+selected_zone_id = None
+new_zone_name = None
+paused = False
 
-        .metric-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 15px;
-        }
+def mouse_event(event, x, y, flags, param):
+    global drawing, start_x, start_y, curr_x, curr_y
+    global mode, selected_zone_id, new_zone_name
 
-        .zone-item {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-left: 4px solid var(--accent);
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: all 0.3s ease;
-        }
+    if event == cv2.EVENT_LBUTTONDOWN:
+        if mode in ["edit","delete"]:
+            for z in zn.zones:
+                if zn.is_point_inside_zone(x, y, z):
+                    selected_zone_id = z["id"]
+                    if mode == "delete":
+                        zn.delete_zone_by_id(selected_zone_id)
+                        zn.save_zones()
+                        print(f"Deleted zone {z['name']}")
+                        mode = None
+                        return
+                    else:
+                        drawing = True
+                        start_x, start_y = x, y
+                        return
 
-        .zone-item:hover {
-            background: rgba(0, 242, 255, 0.05);
-            transform: translateX(5px);
-        }
+        if mode == "new":
+            drawing = True
+            start_x, start_y = x, y
 
-        .zone-item.danger {
-            border-left-color: var(--danger);
-            background: rgba(255, 0, 85, 0.08);
-            border-right: 1px solid rgba(255, 0, 85, 0.2);
-        }
+    elif event == cv2.EVENT_MOUSEMOVE and drawing:
+        curr_x, curr_y = x, y
 
-        .label-upper {
-            font-size: 0.7rem;
-            color: #64748b;
-            text-transform: uppercase;
-            font-weight: 700;
-            letter-spacing: 1px;
-        }
+    elif event == cv2.EVENT_LBUTTONUP and drawing:
+        drawing = False
+        curr_x, curr_y = x, y
 
-        .stat-lg { 
-            font-size: 1.5rem; 
-            font-weight: 700; 
-            text-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+        x1, y1 = min(start_x, curr_x), min(start_y, curr_y)
+        x2, y2 = max(start_x, curr_x), max(start_y, curr_y)
+        pts = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
+
+        if mode == "new":
+            zn.add_zone(new_zone_name, pts)
+            zn.save_zones()
+            print(f"Created zone: {new_zone_name}")
+            mode = None
+
+        elif mode == "edit":
+            zn.update_zone(selected_zone_id, pts)
+            zn.save_zones()
+            print("Zone updated")
+            mode = None
+
+# --- Main ---
+zn.load_zones()
+cam.start_camera("videos/sam1.mp4")
+
+# Check admin access for zone management
+check_admin_access()
+
+cv2.namedWindow("Crowd Monitor")
+cv2.setMouseCallback("Crowd Monitor", mouse_event)
+
+api_thread = threading.Thread(target=start_api, daemon=True)
+api_thread.start()
+
+print("🚀 API live at http://localhost:8000")
+if ALLOW_ZONE_MANAGEMENT:
+    print("🔓 Zone Controls: n=new zone, e=edit, d=delete, s=save, p=pause, q=quit")
+else:
+    print("🔒 Zone Controls: DISABLED (admin access required)")
+    print("   Available: p=pause, q=quit")
+
+prev_t = datetime.datetime.now().timestamp()
+
+# --- Loop ---
+while True:
+    if not paused:
+        frame = cam.get_camera_frame()
+        if frame is None:
+            continue
+
+        frame = cv2.resize(frame, (1280, 720))
+
+        now = datetime.datetime.now().timestamp()
+        fps = 1 / (now - prev_t + 1e-8)
+        prev_t = now
+
+        cv2.putText(frame, f"FPS: {int(fps)}", (20, 40),
+                    cv2.FONT_HERSHEY_DUPLEX, 1, (0,255,255), 2)
+
+        people = tr.track_people(frame)
+        zn.update_heatmap(people, frame.shape)
+        zn.count_people_in_zones(people)
+
+        counts = zn.get_counts_for_api()
+        api_server.live_count.update(counts)
+
+        # Log for export
+        entry = {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total_people": counts["total_people"]
         }
+        entry.update(counts["zones"])
+        api_server.history_log.append(entry)
         
-        .text-info-custom { color: var(--accent); }
+        # Log to database every 5 seconds to avoid excessive writes
+        if int(now) % 5 == 0:
+            try:
+                db.log_entry(counts["total_people"], json.dumps(counts["zones"]))
+            except Exception as e:
+                print(f"Database logging error: {e}")
 
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        zn.draw_all_zones(frame)
+        zn.draw_zone_count_display(frame)
 
-        .pulse {
-            height: 10px; width: 10px; background: var(--success); border-radius: 50%;
-            display: inline-block; margin-right: 8px;
-            box-shadow: 0 0 12px var(--success);
-            animation: blink 1.5s infinite;
-        }
-        @keyframes blink { 50% { opacity: 0.3; transform: scale(0.8); } }
+        for p in people:
+            x1,y1,x2,y2 = p["bbox"]
+            cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,0), 2)
+            cv2.putText(frame, f"ID:{p['id']}", (x1, y1-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
 
-        .btn-primary {
-            background: linear-gradient(135deg, var(--accent), var(--secondary-accent));
-            border: none;
-            font-weight: 600;
-        }
-        .btn-primary:hover {
-            filter: brightness(1.2);
-            box-shadow: 0 0 15px rgba(112, 0, 255, 0.4);
-        }
-    </style>
-</head>
-<body>
+        # Update shared frame for video feed endpoint
+        api_server.latest_frame = frame.copy()
 
-<div class="dashboard-container">
-    <header>
-        <div>
-            <span class="pulse"></span>
-            <span class="fw-bold" style="letter-spacing: 0.5px;">Croud<span style="color:var(--accent)">Count</span>- Infosys</span>
-        </div>
-        <div class="d-flex align-items-center gap-4">
-            <div class="text-end">
-                <div class="label-upper">Live Occupancy</div>
-                <div class="h4 mb-0 text-info-custom fw-bold" id="totalCount">0</div>
-            </div>
-            <div class="text-end border-start border-secondary ps-4">
-                <div class="label-upper">Sync Time</div>
-                <div class="small text-muted" id="lastUpdated">--:--:--</div>
-            </div>
-            <a href="http://localhost:8000/export_csv" class="btn btn-primary btn-sm px-4 rounded-pill">Export CSV</a>
-        </div>
-    </header>
+        if drawing:
+            cv2.rectangle(frame, (start_x, start_y), (curr_x, curr_y), (255,255,255), 2)
 
-    <aside class="sidebar">
-        <h6 class="label-upper mb-3" style="color: var(--accent)">● Area Breakdown</h6>
-        <div id="zoneContainer" class="zone-list-scroll"></div>
-        <div id="alertBox" class="mt-3 p-2 d-none rounded text-center small fw-bold" style="background: var(--danger); color: white; box-shadow: 0 0 20px rgba(255, 0, 85, 0.3);">
-            ⚠️ CRITICAL CAPACITY REACHED
-        </div>
-    </aside>
+        cv2.imshow("Crowd Monitor", frame)
 
-    <main class="main-content">
-        <h6 class="label-upper mb-3">Live Population Dynamics</h6>
-        <div style="height: calc(100% - 30px);">
-            <canvas id="lineChart"></canvas>
-        </div>
-    </main>
+    key = cv2.waitKey(1)
+    if key == ord('q'): 
+        break
+    elif key == ord('p'): 
+        paused = not paused
+    elif key == ord('n'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone creation requires ADMIN access")
+            continue
+        new_zone_name = input("Zone name: ")
+        mode = "new"
+    elif key == ord('e'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone editing requires ADMIN access")
+            continue
+        mode = "edit"
+    elif key == ord('d'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone deletion requires ADMIN access")
+            continue
+        mode = "delete"
+    elif key == ord('s'):
+        if not ALLOW_ZONE_MANAGEMENT:
+            print("❌ Zone saving requires ADMIN access")
+            continue
+        zn.save_zones()
+        print("✅ Zones saved successfully")
 
-    <div class="bottom-shelf">
-        <div class="metric-card">
-            <h6 class="label-upper mb-2">Activity Heat Profile</h6>
-            <div style="height: 130px;">
-                <canvas id="heatIntensityChart"></canvas>
-            </div>
-        </div>
-        <div class="metric-card">
-            <h6 class="label-upper mb-3">Operational Insights</h6>
-            <div class="row text-center h-75 align-items-center">
-                <div class="col-6 border-end border-secondary">
-                    <div class="label-upper">Busiest Zone</div>
-                    <div class="h5 mt-1 fw-bold" id="peakZone" style="color: var(--success)">N/A</div>
-                </div>
-                <div class="col-6">
-                    <div class="label-upper">Active Points</div>
-                    <div class="h5 mt-1 fw-bold" id="sensorCount" style="color: var(--secondary-accent)">0</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-const ZONE_LIMIT = 3;
-const MAX_POINTS = 30;
-let lineChart, heatChart;
-let labels = [];
-
-function init() {
-    const chartDefaults = {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: {
-            duration: 1000,
-            easing: 'easeInOutQuad'
-        },
-        plugins: { legend: { display: false } },
-        scales: { 
-            x: { grid: { display: false }, ticks: { color: '#475569', font: { size: 10 } } },
-            y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#475569' }, beginAtZero: true }
-        }
-    };
-
-    lineChart = new Chart(document.getElementById('lineChart'), {
-        type: 'line',
-        data: { labels: labels, datasets: [] },
-        options: { 
-            ...chartDefaults, 
-            plugins: { 
-                legend: { 
-                    display: true, 
-                    position: 'top', 
-                    align: 'end',
-                    labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle', boxWidth: 6, font: { size: 11 } } 
-                } 
-            },
-            elements: { line: { tension: 0.4 }, point: { radius: 0 } }
-        }
-    });
-
-    heatChart = new Chart(document.getElementById('heatIntensityChart'), {
-        type: 'line',
-        data: { 
-            labels: [], 
-            datasets: [{ 
-                data: [], 
-                borderColor: '#7000ff', 
-                backgroundColor: 'rgba(112, 0, 255, 0.15)', 
-                fill: true, 
-                tension: 0.4, 
-                borderWidth: 2,
-                pointRadius: 0
-            }] 
-        },
-        options: chartDefaults
-    });
-}
-
-function updateData() {
-    fetch('http://localhost:8000/get_count')
-        .then(res => res.json())
-        .then(data => {
-            const now = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
-            document.getElementById('lastUpdated').innerText = now;
-
-            if (labels.length >= MAX_POINTS) labels.shift();
-            labels.push(now);
-
-            const zoneContainer = document.getElementById('zoneContainer');
-            zoneContainer.innerHTML = '';
-            let total = 0;
-            let peakVal = -1;
-            let peakName = 'None';
-            let limitReached = false;
-
-            Object.entries(data.zones).forEach(([name, count]) => {
-                total += count;
-                if(count > peakVal) { peakVal = count; peakName = name; }
-                const isOver = count > ZONE_LIMIT;
-                if(isOver) limitReached = true;
-
-                zoneContainer.innerHTML += `
-                    <div class="zone-item ${isOver ? 'danger' : ''}">
-                        <div>
-                            <div class="label-upper" style="font-size: 0.6rem;">Area Name</div>
-                            <div class="fw-bold" style="color: #f1f5f9">${name}</div>
-                        </div>
-                        <div class="stat-lg ${isOver ? 'text-danger' : 'text-info-custom'}">${count}</div>
-                    </div>`;
-
-                let dataset = lineChart.data.datasets.find(ds => ds.label === name);
-                if (!dataset) {
-                    // Modern Cyberpunk Chart Colors
-                    const colors = ['#ff0055', '#00ff88', '#00f2ff', '#ffaa00', '#7000ff'];
-                    dataset = {
-                        label: name,
-                        data: new Array(labels.length - 1).fill(null),
-                        borderColor: colors[lineChart.data.datasets.length % colors.length],
-                        borderWidth: 3,
-                        pointRadius: 0,
-                        tension: 0.4,
-                        shadowBlur: 10,
-                        shadowColor: 'rgba(0,0,0,0.5)'
-                    };
-                    lineChart.data.datasets.push(dataset);
-                }
-                if (dataset.data.length >= MAX_POINTS) dataset.data.shift();
-                dataset.data.push(count);
-            });
-
-            lineChart.data.datasets = lineChart.data.datasets.filter(ds => data.zones[ds.label] !== undefined);
-
-            document.getElementById('totalCount').innerText = total;
-            document.getElementById('peakZone').innerText = peakName;
-            document.getElementById('sensorCount').innerText = Object.keys(data.zones).length;
-            const alertBox = document.getElementById('alertBox');
-            limitReached ? alertBox.classList.remove('d-none') : alertBox.classList.add('d-none');
-
-            heatChart.data.labels = data.heat_timestamps || [];
-            heatChart.data.datasets[0].data = data.heat_intensity_history || [];
-
-            lineChart.update();
-            heatChart.update();
-        })
-        .catch(e => console.error("Update failed"));
-}
-
-init();
-setInterval(updateData, 1000);
-</script>
-</body>
-</html>
-
+cam.stop_camera()
+cv2.destroyAllWindows()
